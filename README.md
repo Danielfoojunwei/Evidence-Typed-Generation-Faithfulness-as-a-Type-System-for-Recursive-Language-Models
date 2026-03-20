@@ -1,6 +1,7 @@
 # Evidence-Typed Generation: Faithfulness as a Type System for Recursive Language Models
 
-> **Anonymous authors. Paper under double-blind review.**
+<img width="1280" height="714" alt="image" src="https://github.com/user-attachments/assets/ba378cd2-2e9a-4f68-a9bf-e64defe9ecaa" />
+
 
 ## Abstract
 
