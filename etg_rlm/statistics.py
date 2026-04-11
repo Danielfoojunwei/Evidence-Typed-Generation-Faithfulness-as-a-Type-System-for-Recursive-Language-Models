@@ -450,6 +450,96 @@ class StatisticalAnalysis:
     diff_ci: BootstrapCIResult
 
 
+# ---------------------------------------------------------------------------
+# Benjamini-Hochberg FDR correction (addresses multiple comparisons issue)
+# ---------------------------------------------------------------------------
+
+
+class CorrectedPValue(NamedTuple):
+    """A p-value with its BH-corrected (adjusted) counterpart.
+
+    Attributes:
+        original_index: index of this test in the original list
+        raw_p: the raw (uncorrected) p-value
+        adjusted_p: the BH-adjusted p-value
+        significant: whether the adjusted p-value < alpha
+        label: optional label identifying this comparison
+    """
+
+    original_index: int
+    raw_p: float
+    adjusted_p: float
+    significant: bool
+    label: str
+
+
+def benjamini_hochberg_correction(
+    p_values: list[float],
+    alpha: float = 0.05,
+    labels: list[str] | None = None,
+) -> list[CorrectedPValue]:
+    """Apply Benjamini-Hochberg FDR correction for multiple comparisons.
+
+    When testing multiple aggregation methods or threshold configurations
+    simultaneously (e.g., 7 aggregation methods x multiple thresholds),
+    the probability of finding at least one spuriously significant result
+    increases. BH correction controls the False Discovery Rate (FDR).
+
+    The procedure:
+        1. Sort p-values in ascending order: p_(1) <= p_(2) <= ... <= p_(m)
+        2. Find the largest k such that p_(k) <= k/m * alpha
+        3. Reject hypotheses 1, ..., k
+
+    Adjusted p-values are computed as:
+        p_adj(i) = min(p_(i) * m / i, 1.0)
+    with monotonicity enforcement (adjusted p-values are non-decreasing).
+
+    Args:
+        p_values: list of raw p-values from multiple hypothesis tests
+        alpha: target FDR level (default 0.05)
+        labels: optional labels for each test (e.g., method names)
+
+    Returns:
+        List of CorrectedPValue results, in the original order.
+    """
+    m = len(p_values)
+    if m == 0:
+        return []
+
+    if labels is None:
+        labels = [f"test_{i}" for i in range(m)]
+    if len(labels) != m:
+        raise ValueError(
+            f"labels length ({len(labels)}) must match p_values length ({m})"
+        )
+
+    # Create (original_index, p_value) pairs and sort by p-value
+    indexed = sorted(enumerate(p_values), key=lambda x: x[1])
+
+    # Compute adjusted p-values with monotonicity enforcement
+    adjusted = [0.0] * m
+    prev_adj = 0.0
+    for rank, (orig_idx, raw_p) in enumerate(indexed, start=1):
+        adj_p = min(raw_p * m / rank, 1.0)
+        # Enforce monotonicity: adjusted p-values must be non-decreasing
+        # when sorted by raw p-value
+        adj_p = max(adj_p, prev_adj)
+        adjusted[orig_idx] = adj_p
+        prev_adj = adj_p
+
+    results = []
+    for i in range(m):
+        results.append(CorrectedPValue(
+            original_index=i,
+            raw_p=p_values[i],
+            adjusted_p=adjusted[i],
+            significant=adjusted[i] < alpha,
+            label=labels[i],
+        ))
+
+    return results
+
+
 def full_analysis(
     etg_values: list[float],
     baseline_values: list[float],

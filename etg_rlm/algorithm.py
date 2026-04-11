@@ -1,6 +1,6 @@
 """EBRG Algorithm (Section 5) and Constrained Decoding (Section 4.6).
 
-Implements the core recursive algorithm from the paper pseudocode:
+Implements the core iterative verification algorithm:
 
     def EBRG(q, E, tau, N, budget):
         G = initialize_graph()
@@ -24,8 +24,13 @@ Constrained Decoding (Section 4.6, Definition 5):
     Y(G_T, tau) = {y | A(y) subset {pi(v) : v in V^tau}}
     y* = argmax_{y in Y(G_T, tau)} log p_theta(y | q, E)
 
-    Key result: unsupported claims are unrepresentable in the output space.
-    This is mechanism design, not behavioral alignment.
+    Unsupported claims are excluded from the output space via
+    threshold-based filtering on the ESBG DAG.
+
+Note: The algorithm is iterative (for-loop over topologically ordered
+nodes with a budget counter), not recursive in the formal sense.
+The "recursive" label in the paper title refers to the conceptual
+recursion of expanding claim dependencies, not to algorithmic recursion.
 """
 
 from __future__ import annotations
@@ -80,9 +85,8 @@ def constrained_decode(
         V^tau = {v in V | type(pi(v)) = Verified}
         Y(G_T, tau) = {y | A(y) subset {pi(v) : v in V^tau}}
 
-    Then renders y* from the well-typed output space.
-
-    Key result: unsupported claims are unrepresentable in the output space.
+    Then renders the output from only the verified claims.
+    Unsupported claims are excluded from the output space.
     """
     renderable_ids = type_checker.renderable_claims(esbg)
 
@@ -122,7 +126,7 @@ class EBRGResult:
     """Result of running the EBRG algorithm (Section 5).
 
     Contains the final ESBG, constrained decoding result,
-    verification of Proposition 2 (zero-confabulation),
+    evidence pointer guarantee check (revised Proposition 2),
     and the theoretical hallucination bound (Proposition 1).
     """
 
@@ -133,6 +137,7 @@ class EBRGResult:
     zero_confabulation_holds: bool
     budget_used: int
     step_log: list[EBRGStepLog]
+    graduated_output: str = ""
 
 
 def ebrg(
@@ -249,7 +254,10 @@ def ebrg(
     # Step 4: Constrained decoding (Definition 5)
     decoding = constrained_decode(esbg_graph, type_checker)
 
-    # Verify Proposition 2 (zero-confabulation)
+    # Step 4b: Graduated output (preserves coverage with annotations)
+    graduated = type_checker.graduated_output(esbg_graph)
+
+    # Verify evidence pointer guarantee (revised Proposition 2)
     node_evidence_counts = {
         nid: len(esbg_graph.get_node(nid).evidence_spans)
         for nid in esbg_graph.all_node_ids()
@@ -281,4 +289,5 @@ def ebrg(
         zero_confabulation_holds=confab_check.satisfies_proposition,
         budget_used=budget_used,
         step_log=step_log,
+        graduated_output=graduated.annotated_text,
     )

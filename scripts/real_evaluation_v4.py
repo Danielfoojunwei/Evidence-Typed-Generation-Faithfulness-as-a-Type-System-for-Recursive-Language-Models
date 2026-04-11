@@ -58,7 +58,11 @@ from etg_rlm.bounds import hallucination_upper_bound, kl_bernoulli
 
 CALIBRATION_FRACTION = 0.3
 RANDOM_SEED = 42
-E2E_N_QUESTIONS = 50
+# Increased from 50 to 572 (full evaluation set) to address the critical
+# limitation that E2E results on 50 questions are not statistically
+# meaningful (CI for 22.2% factuality spans roughly [8%, 44%] at n=18).
+# Set ETG_E2E_QUICK=1 environment variable to use 50 for fast iteration.
+E2E_N_QUESTIONS = 50 if os.environ.get("ETG_E2E_QUICK") else 572
 E2E_MAX_NEW_TOKENS = 100
 
 # Generator models to try (in order of preference)

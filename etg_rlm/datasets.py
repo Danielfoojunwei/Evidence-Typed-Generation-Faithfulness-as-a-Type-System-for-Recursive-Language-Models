@@ -1,11 +1,17 @@
 """Dataset specifications for ETG evaluation (Section 1 of experimental design).
 
-Defines the five evaluation datasets and their configurations:
+Defines the evaluation datasets and their configurations:
     1. Natural Questions (NQ) -- factual extraction from long documents
     2. HotpotQA -- multi-hop reasoning across multiple documents
     3. TruthfulQA -- resistance to plausible-sounding misconceptions
     4. HaluEval -- hallucination detection with adversarial examples
     5. XSum -- faithful abstractive summarization
+    6. FEVER -- large-scale fact verification (cross-dataset validation)
+    7. FactScore Biographies -- fine-grained factuality on long-form text
+
+Datasets 6-7 were added to address the critical limitation that all original
+results were reported on TruthfulQA only. Cross-dataset evaluation is essential
+to validate that ETG generalizes beyond its development benchmark.
 
 Each dataset is defined as a configuration that includes the dataset name,
 evaluation subset size, task type, and ground truth specification. A DatasetLoader
@@ -23,13 +29,17 @@ from etg_rlm.evaluation import EvalInstance
 
 
 class DatasetName(Enum):
-    """The five evaluation datasets from the experimental design."""
+    """Evaluation datasets from the experimental design."""
 
     NATURAL_QUESTIONS = "natural_questions"
     HOTPOT_QA = "hotpot_qa"
     TRUTHFUL_QA = "truthful_qa"
     HALU_EVAL = "halu_eval"
     XSUM = "xsum"
+    # Cross-dataset generalization benchmarks (added to address
+    # single-dataset limitation identified in critical review)
+    FEVER = "fever"
+    FACTSCORE_BIO = "factscore_bio"
 
 
 class TaskType(Enum):
@@ -40,6 +50,8 @@ class TaskType(Enum):
     TRUTHFULNESS = "truthfulness"
     HALLUCINATION_DETECTION = "hallucination_detection"
     SUMMARIZATION = "summarization"
+    FACT_VERIFICATION = "fact_verification"
+    BIOGRAPHY_FACTUALITY = "biography_factuality"
 
 
 class GroundTruthType(Enum):
@@ -183,12 +195,57 @@ XSUM_CONFIG = DatasetConfig(
     ),
 )
 
+FEVER_CONFIG = DatasetConfig(
+    name=DatasetName.FEVER,
+    task_type=TaskType.FACT_VERIFICATION,
+    eval_subset_size=5000,
+    ground_truth_types=(GroundTruthType.BINARY_LABELS,),
+    description=(
+        "Large-scale fact verification dataset with 185K claims extracted "
+        "from Wikipedia. Each claim is labeled as SUPPORTS, REFUTES, or "
+        "NOT ENOUGH INFO, with annotated evidence sentences."
+    ),
+    rationale=(
+        "Critical for cross-dataset generalization: tests whether ETG's "
+        "verification pipeline transfers to structured fact-checking claims "
+        "outside TruthfulQA. FEVER's scale (185K claims) also enables "
+        "statistically meaningful evaluation with tight confidence intervals."
+    ),
+)
+
+FACTSCORE_BIO_CONFIG = DatasetConfig(
+    name=DatasetName.FACTSCORE_BIO,
+    task_type=TaskType.BIOGRAPHY_FACTUALITY,
+    eval_subset_size=500,
+    ground_truth_types=(GroundTruthType.BINARY_LABELS,),
+    description=(
+        "FactScore biography benchmark: long-form biographies generated "
+        "by LLMs, decomposed into atomic facts, and scored against "
+        "Wikipedia for factual precision."
+    ),
+    rationale=(
+        "Tests ETG on long-form generation where claim decomposition "
+        "quality matters most. The original FactScore benchmark uses "
+        "fine-grained atomic fact evaluation, directly testing ETG's "
+        "claim-level filtering on realistic LLM outputs."
+    ),
+)
+
 ALL_DATASET_CONFIGS = [
     NQ_CONFIG,
     HOTPOT_QA_CONFIG,
     TRUTHFUL_QA_CONFIG,
     HALU_EVAL_CONFIG,
     XSUM_CONFIG,
+    FEVER_CONFIG,
+    FACTSCORE_BIO_CONFIG,
+]
+
+# Datasets used for cross-dataset generalization validation
+CROSS_VALIDATION_CONFIGS = [
+    FEVER_CONFIG,
+    HALU_EVAL_CONFIG,
+    FACTSCORE_BIO_CONFIG,
 ]
 
 
