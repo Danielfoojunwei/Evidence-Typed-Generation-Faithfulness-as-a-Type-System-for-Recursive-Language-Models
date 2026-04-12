@@ -1,0 +1,21 @@
+{
+  "n_claims": 5887,
+  "n_correct": 2589,
+  "n_incorrect": 3298,
+  "base_rate": 0.4398,
+  "etg_retention_rate": 0.3102,
+  "etg_precision": 0.933,
+  "etg_precision_ci": [
+    0.9188,
+    0.9459
+  ],
+  "random_filter_precision_mean": 0.4401,
+  "random_filter_precision_std": 0.0096,
+  "random_filter_precision_ci": [
+    0.4396,
+    0.4407
+  ],
+  "first_k_precision": 0.4189,
+  "improvement_over_random": 0.4929,
+  "improvement_pct_toward_perfect": 88.0
+}
