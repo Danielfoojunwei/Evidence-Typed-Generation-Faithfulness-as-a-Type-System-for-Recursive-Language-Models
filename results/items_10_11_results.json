@@ -1,0 +1,42 @@
+{
+  "generator": "Qwen/Qwen2.5-0.5B-Instruct (494M, loaded from /tmp/qwen-0.5b)",
+  "n_questions": 200,
+  "item_10_e2e": {
+    "n_sentences": 726,
+    "n_accepted": 694,
+    "n_rejected": 32,
+    "retention_rate": 0.9559,
+    "per_q_acceptance_mean": 0.9563,
+    "per_q_acceptance_ci": [
+      0.9369,
+      0.9732
+    ],
+    "time_seconds": 507.6,
+    "views": [
+      "NLI (cross-encoder/nli-distilroberta-base)",
+      "LLM-Judge (flan-t5-small)",
+      "QA (tinyroberta-squad2)"
+    ]
+  },
+  "item_11_selfcheck": {
+    "n_sentences": 726,
+    "n_accepted": 26,
+    "n_rejected": 700,
+    "retention_rate": 0.0358,
+    "per_q_acceptance_mean": 0.067,
+    "per_q_acceptance_ci": [
+      0.0381,
+      0.0997
+    ],
+    "n_consistency_samples": 3,
+    "time_seconds": 2312.3
+  },
+  "head_to_head": {
+    "paired_diff_mean": 0.8893,
+    "paired_diff_ci": [
+      0.8502,
+      0.9242
+    ]
+  },
+  "note": "ALL numbers from real model inference. No mocks, no hardcoded values."
+}

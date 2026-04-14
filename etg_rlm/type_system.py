@@ -1,4 +1,4 @@
-"""Evidence-Typed Generation (ETG) Type System (Section 4.4, 4.6).
+"""Evidence-Typed Generation (ETG) — Evidence Confidence Grading (Section 4.4, 4.6).
 
 Implements Definition 4 (Evidence Types) and Definition 5 (Well-Typed Output Space).
 
@@ -8,21 +8,32 @@ Definition 4 (Evidence Types):
             Verified      if m(c) >= tau
             Uncertain     if tau' < m(c) < tau
             Unsupported   if m(c) <= tau'
-    This enables static-style checking at decoding time.
+    This enables threshold-based filtering at decoding time.
 
 Definition 5 (Well-Typed Output Space):
     V^tau = {v in V | type(pi(v)) = Verified}
     Y(G_T, tau) = {y | A(y) subset {pi(v) : v in V^tau}}
     y* = argmax_{y in Y(G_T, tau)} log p_theta(y | q, E)
 
-The type-checker rejects an answer if it contains Unsupported claims.
-The RLM is a type-directed compiler:
-    1. Compile (q, E) into ESBG
-    2. Type-check claims
-    3. Render only well-typed outputs
+The checker rejects an answer if it contains Unsupported claims.
+ETG pipeline:
+    1. Decompose generated text into atomic claims
+    2. Verify claims via multi-view ensemble
+    3. Grade each claim's confidence tier (Verified/Uncertain/Unsupported)
+    4. Render only claims that pass the confidence threshold
 
-Key result: unsupported claims are unrepresentable in the output space.
-This is mechanism design, not behavioral alignment.
+Analogy to type systems: ETG is *inspired by* type systems in that
+unsupported claims are structurally excluded from the output space,
+similar to how ill-typed programs cannot compile. However, ETG does
+not provide formal type-theoretic guarantees (compositionality,
+soundness, decidability) in the programming-language sense. The
+"types" are confidence tiers derived from ensemble verification
+scores, not formal types derived from inference rules.
+
+The genuine structural contribution is dependency-aware filtering
+(Definition 5): claims whose ancestors fail verification are
+transitively rejected regardless of their own scores, providing
+a compositional propagation guarantee on the DAG.
 """
 
 from __future__ import annotations
@@ -78,10 +89,18 @@ class GraphTypeCheckResult(NamedTuple):
 
 
 class EvidenceTypeChecker:
-    """Type checker for the Evidence-Typed Generation framework.
+    """Evidence confidence grader for the ETG framework.
 
-    Assigns evidence types to claims and validates that an answer
-    contains only well-typed (Verified) claims.
+    Assigns confidence tiers to claims based on multi-view verification
+    scores and validates that an answer contains only sufficiently
+    supported (Verified) claims.
+
+    Note: Despite the "type checker" name (retained for paper
+    compatibility), this is a threshold-based confidence grader, not a
+    formal type checker in the PL sense. It does not perform type
+    inference, unification, or compositional type derivation. The
+    structural guarantee it provides is dependency-aware filtering:
+    claims whose ancestors are unsupported are transitively rejected.
     """
 
     def __init__(self, thresholds: TypeThresholds | None = None) -> None:
@@ -171,3 +190,105 @@ class EvidenceTypeChecker:
                 if all(d.node_id in renderable for d in deps):
                     renderable.add(node.node_id)
         return renderable
+
+    def graduated_output(
+        self, esbg: EvidenceScopedBeliefGraph
+    ) -> GraduatedOutputResult:
+        """Produce graduated output with confidence annotations per claim.
+
+        Instead of binary accept/reject, assigns each claim a confidence
+        tier and renders all claims with annotations indicating their
+        verification status. This preserves recall while still
+        communicating verification confidence to the user.
+
+        Returns:
+            GraduatedOutputResult with per-tier claim lists and
+            annotated rendered text.
+        """
+        high_confidence: list[str] = []
+        moderate_confidence: list[str] = []
+        unverified: list[str] = []
+
+        for node in esbg.topological_order():
+            ct = self.type_claim(node)
+            deps = esbg.get_dependencies(node.node_id)
+            ancestors_ok = all(
+                self.type_claim(d) == ClaimType.VERIFIED for d in deps
+            )
+
+            if ct == ClaimType.VERIFIED and ancestors_ok:
+                high_confidence.append(node.node_id)
+            elif ct == ClaimType.UNCERTAIN:
+                moderate_confidence.append(node.node_id)
+            else:
+                unverified.append(node.node_id)
+
+        parts: list[str] = []
+        for node in esbg.topological_order():
+            nid = node.node_id
+            text = node.claim.text
+            if nid in high_confidence:
+                parts.append(text)
+            elif nid in moderate_confidence:
+                parts.append(f"[moderate confidence] {text}")
+            else:
+                parts.append(f"[unverified] {text}")
+
+        return GraduatedOutputResult(
+            high_confidence_ids=high_confidence,
+            moderate_confidence_ids=moderate_confidence,
+            unverified_ids=unverified,
+            annotated_text=" ".join(parts),
+        )
+
+
+class GraduatedOutputResult(NamedTuple):
+    """Result of graduated output rendering.
+
+    Instead of binary filtering, all claims are included with
+    confidence annotations, preserving coverage while communicating
+    verification status.
+    """
+
+    high_confidence_ids: list[str]
+    moderate_confidence_ids: list[str]
+    unverified_ids: list[str]
+    annotated_text: str
+
+
+def dag_propagation_bound(
+    leaf_precision: float,
+    depth: int,
+) -> float:
+    """Compositional guarantee for DAG-based dependency propagation.
+
+    If all leaf claims in a dependency chain are independently verified
+    with precision p (probability that a "Verified" claim is truly
+    supported), then the probability that the root claim is supported
+    given all its ancestors are verified is:
+
+        P(root supported | all ancestors verified) >= p^depth
+
+    This formalizes the genuine compositional contribution of ETG's
+    DAG structure: verification errors compound multiplicatively
+    along dependency chains, but the bound is tight and meaningful.
+
+    Args:
+        leaf_precision: probability that an individual verified claim
+            is truly supported by evidence (verifier precision).
+        depth: maximum depth of the dependency chain from root to
+            deepest leaf.
+
+    Returns:
+        Lower bound on probability that root claim is truly supported,
+        given that all claims in the chain are individually verified.
+    """
+    if not (0.0 <= leaf_precision <= 1.0):
+        raise ValueError(
+            f"leaf_precision must be in [0, 1], got {leaf_precision}"
+        )
+    if depth < 0:
+        raise ValueError(f"depth must be >= 0, got {depth}")
+    if depth == 0:
+        return leaf_precision
+    return leaf_precision ** depth

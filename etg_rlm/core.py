@@ -40,7 +40,7 @@ class ClaimStatus(Enum):
 
 
 class ClaimType(Enum):
-    """Evidence type assigned by the ETG type checker (Definition 4).
+    """Evidence confidence tier assigned by the ETG grader (Definition 4).
 
     For thresholds tau > tau':
 
@@ -49,7 +49,11 @@ class ClaimType(Enum):
             Uncertain     if tau' < m(c) < tau
             Unsupported   if m(c) <= tau'
 
-    This enables static-style checking at decoding time.
+    Note: These "types" are confidence tiers derived from ensemble
+    verification scores, not formal types in the programming-language
+    sense. There are no inference rules, no compositionality guarantees,
+    and no soundness theorem. The structural guarantee ETG provides is
+    dependency-aware filtering on the ESBG DAG.
     """
 
     VERIFIED = "verified"

@@ -21,7 +21,7 @@ from etg_rlm.evaluation import EvalInstance
 
 class TestDatasetConfigs:
     def test_five_datasets(self):
-        assert len(ALL_DATASET_CONFIGS) == 5
+        assert len(ALL_DATASET_CONFIGS) == 7
 
     def test_all_names_unique(self):
         names = [c.name for c in ALL_DATASET_CONFIGS]
@@ -35,6 +35,8 @@ class TestDatasetConfigs:
             DatasetName.TRUTHFUL_QA,
             DatasetName.HALU_EVAL,
             DatasetName.XSUM,
+            DatasetName.FEVER,
+            DatasetName.FACTSCORE_BIO,
         }
 
     def test_all_have_descriptions(self):
@@ -125,7 +127,7 @@ class TestGetDatasetConfig:
 
 class TestTotalInstances:
     def test_total(self):
-        expected = 1000 + 500 + 817 + 1000 + 500  # = 3817
+        expected = 1000 + 500 + 817 + 1000 + 500 + 5000 + 500  # = 9317
         assert total_eval_instances() == expected
 
 

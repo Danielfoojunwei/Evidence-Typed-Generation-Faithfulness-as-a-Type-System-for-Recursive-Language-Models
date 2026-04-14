@@ -5,17 +5,26 @@ Proposition 1 (Exponential Suppression of Hallucinations):
     and views are conditionally independent. Then:
         Pr[m(c) >= tau] <= exp(-N * D(tau || alpha))
     where D is KL divergence between Bernoulli distributions.
-    Implication: increasing recursion depth N yields exponential decay
-    in hallucination acceptance. This establishes an inference-time
-    scaling law for faithfulness.
+    Implication: increasing verification depth N yields exponential decay
+    in hallucination acceptance.
 
-Proposition 2 (Zero-Confabulation Property):
-    Under exact entailment verification:
-        Pr[exists c in A(y*) s.t. supp(E,c) = empty] = 0
-    Hallucination is eliminated by construction, not by reward shaping.
-    A confabulation event is defined as emitting a claim without evidence
-    pointers. Under ETG constraints, confabulation probability is zero
-    (unless the verifier produces false positives).
+    CRITICAL CAVEAT: The bound requires conditional independence of views.
+    Empirical evaluation shows this assumption is violated in practice
+    (v2: 96.7-98.5% pairwise agreement among NLI models; v4: 64.8% avg
+    agreement vs 49.5% expected under independence). The bound should be
+    accompanied by an independence diagnostic and, where violated, replaced
+    with the correlated bound (see hallucination_upper_bound_correlated).
+
+Proposition 2 (Evidence Pointer Guarantee — revised):
+    Under ETG constraints, every rendered claim carries at least one
+    evidence span pointer by construction: m(c) >= tau > 0 implies at
+    least one view returned entailed with supporting spans.
+
+    IMPORTANT: This is a structural guarantee on pointer EXISTENCE, not
+    on pointer VALIDITY. A verifier with false-positive rate alpha will
+    assign evidence spans to hallucinated claims. The probability that a
+    rendered claim is actually unsupported is bounded by the conditional
+    hallucination bound (see conditional_hallucination_bound), NOT zero.
 
 Proposition 3 (Optimal Compute Allocation):
     Let each verification view have cost k. Under budget B, the optimal
@@ -134,17 +143,22 @@ def required_views_for_bound(
 
 
 class ConfabulationCheckResult(NamedTuple):
-    """Result of checking the zero-confabulation property (Proposition 2).
+    """Result of checking the evidence pointer guarantee (revised Proposition 2).
 
-    Under exact entailment verification:
-        Pr[exists c in A(y*) s.t. supp(E,c) = empty] = 0
+    Structural guarantee: every rendered claim has at least one evidence
+    span pointer (because m(c) >= tau > 0 requires at least one view
+    to have found supporting evidence).
 
-    A confabulation is emitting a claim without evidence pointers.
+    IMPORTANT: This checks pointer EXISTENCE, not pointer VALIDITY.
+    Use conditional_hallucination_bound() to estimate the probability
+    that a rendered claim is actually unsupported despite having
+    evidence pointers (i.e., the verifier false-positive rate).
     """
 
     satisfies_proposition: bool
     confabulating_node_ids: list[str]
     total_verified_nodes: int
+    estimated_invalid_pointer_rate: float
 
 
 def check_zero_confabulation(
@@ -152,28 +166,31 @@ def check_zero_confabulation(
     node_evidence_counts: dict[str, int],
     node_support_masses: dict[str, float],
     tau: float,
+    verifier_fpr: float = 0.0,
 ) -> ConfabulationCheckResult:
-    """Proposition 2: Zero-Confabulation Property.
+    """Revised Proposition 2: Evidence Pointer Guarantee.
 
-    Under exact entailment verification:
-        Pr[exists c in A(y*) s.t. supp(E,c) = empty] = 0
+    Checks that every rendered claim has at least one evidence span
+    pointer and support mass >= tau. This is a structural invariant
+    that holds by construction (since rendering requires m(c) >= tau > 0).
 
-    Hallucination is eliminated by construction, not by reward shaping.
-    Every rendered claim must have m(c) >= tau with entailed status,
-    so evidence pointers are guaranteed to exist.
-
-    This function verifies that the invariant holds on a concrete ESBG:
-    every node in V^tau must have at least one evidence span and
-    support mass >= tau.
+    CRITICAL NOTE: This guarantee is on pointer existence, NOT validity.
+    A hallucinated claim can pass verification if verifiers produce
+    false positives. The estimated_invalid_pointer_rate field reports
+    the estimated probability that evidence pointers are invalid,
+    given the verifier false-positive rate.
 
     Args:
         verified_node_ids: the set V^tau of rendered node IDs
         node_evidence_counts: node_id -> |sigma(v)| (number of evidence spans)
         node_support_masses: node_id -> m(v)
         tau: support mass threshold
+        verifier_fpr: estimated false-positive rate of the verifier
+            ensemble. Used to estimate the rate of invalid pointers.
 
     Returns:
-        ConfabulationCheckResult indicating whether the property holds.
+        ConfabulationCheckResult with structural check and estimated
+        invalid pointer rate.
     """
     confabulating: list[str] = []
     for nid in verified_node_ids:
@@ -186,7 +203,51 @@ def check_zero_confabulation(
         satisfies_proposition=len(confabulating) == 0,
         confabulating_node_ids=confabulating,
         total_verified_nodes=len(verified_node_ids),
+        estimated_invalid_pointer_rate=verifier_fpr,
     )
+
+
+def conditional_hallucination_bound(
+    verifier_precision: float,
+    tau: float,
+    n_views: int,
+    alpha: float,
+) -> float:
+    """Conditional bound on hallucination in rendered output.
+
+    Given that the verifier ensemble has precision p (probability that
+    a "Verified" verdict is correct), the probability that a rendered
+    claim is actually unsupported is:
+
+        P(unsupported | rendered) <= (1 - p)
+
+    More precisely, combining with the exponential suppression bound:
+
+        P(hallucination rendered) <= min(
+            1 - verifier_precision,
+            hallucination_upper_bound(n_views, tau, alpha)
+        )
+
+    This replaces the tautological "zero-confabulation" claim with a
+    meaningful guarantee conditioned on empirically measurable verifier
+    quality.
+
+    Args:
+        verifier_precision: P(truly supported | verdict = Verified)
+        tau: support mass threshold
+        n_views: number of verification views
+        alpha: per-view false-positive rate
+
+    Returns:
+        Upper bound on probability that a rendered claim is unsupported.
+    """
+    if not (0.0 <= verifier_precision <= 1.0):
+        raise ValueError(
+            f"verifier_precision must be in [0, 1], got {verifier_precision}"
+        )
+    precision_bound = 1.0 - verifier_precision
+    exponential_bound = hallucination_upper_bound(n_views, tau, alpha)
+    return min(precision_bound, exponential_bound)
 
 
 class InferenceScalingResult(NamedTuple):
@@ -318,4 +379,185 @@ def optimal_view_allocation(
         allocations=allocs,
         total_views=total_views,
         expected_false_pass_rate=avg_fp,
+    )
+
+
+# ---------------------------------------------------------------------------
+# Correlated bound (extends Proposition 1 for non-independent views)
+# ---------------------------------------------------------------------------
+
+
+def hallucination_upper_bound_correlated(
+    n_views: int,
+    tau: float,
+    alpha: float,
+    rho: float,
+) -> float:
+    """Exponential suppression bound accounting for pairwise view correlation.
+
+    Extends Proposition 1 for the realistic case where views are NOT
+    conditionally independent. Uses a conservative Gaussian copula
+    approximation for correlated Bernoulli variables.
+
+    Under pairwise correlation rho between views, the effective number
+    of independent views is:
+
+        N_eff = N / (1 + (N - 1) * rho)
+
+    The correlated bound is then:
+
+        Pr[m(c) >= tau] <= exp(-N_eff * D(tau || alpha))
+
+    When rho = 0, this reduces to the standard independent bound.
+    When rho = 1, N_eff = 1 regardless of N (all views are identical).
+
+    This bound should ALWAYS be reported alongside the independent
+    bound, with rho estimated from empirical pairwise agreement data.
+
+    Args:
+        n_views: N, number of verification views
+        tau: support mass threshold for the Verified type
+        alpha: per-view false-positive rate
+        rho: average pairwise correlation between views (0 = independent,
+            1 = perfectly correlated). Estimated from empirical data via
+            estimate_view_correlation().
+
+    Returns:
+        Upper bound on hallucination acceptance probability under
+        correlated views.
+
+    Raises:
+        ValueError: if parameters are out of valid ranges
+    """
+    if n_views < 1:
+        raise ValueError(f"n_views must be >= 1, got {n_views}")
+    if not (0.0 < tau <= 1.0):
+        raise ValueError(f"tau must be in (0, 1], got {tau}")
+    if not (0.0 <= alpha < 1.0):
+        raise ValueError(f"alpha must be in [0, 1), got {alpha}")
+    if not (0.0 <= rho <= 1.0):
+        raise ValueError(f"rho must be in [0, 1], got {rho}")
+
+    if alpha >= tau:
+        return 1.0
+
+    # Effective independent views under correlation
+    n_eff = n_views / (1.0 + (n_views - 1) * rho)
+
+    d = kl_bernoulli(tau, alpha)
+    if math.isinf(d):
+        return 0.0
+
+    return math.exp(-n_eff * d)
+
+
+# ---------------------------------------------------------------------------
+# Conditional independence diagnostic
+# ---------------------------------------------------------------------------
+
+
+class IndependenceTestResult(NamedTuple):
+    """Result of testing conditional independence between verification views.
+
+    Reports whether views satisfy the independence assumption required
+    by Proposition 1, along with quantitative diagnostics.
+    """
+
+    pairwise_agreements: list[tuple[int, int, float]]
+    expected_agreement_if_independent: float
+    average_excess_correlation: float
+    estimated_rho: float
+    independence_plausible: bool
+
+
+def estimate_view_correlation(
+    view_verdicts: list[list[bool]],
+    ground_truth: list[bool] | None = None,
+) -> IndependenceTestResult:
+    """Estimate pairwise correlation between verification views.
+
+    Computes the excess agreement between all pairs of views relative
+    to what would be expected under conditional independence. This
+    diagnostic should be reported alongside any use of the exponential
+    bound (Proposition 1).
+
+    Args:
+        view_verdicts: list of N lists, where view_verdicts[i][j] is
+            True if view i accepted claim j, False otherwise.
+            All lists must have the same length (number of claims).
+        ground_truth: optional list of ground-truth labels. If provided,
+            the expected agreement under independence is computed from
+            the marginal rates conditioned on ground truth. If None,
+            uses the overall marginal acceptance rates.
+
+    Returns:
+        IndependenceTestResult with pairwise agreements, expected
+        agreement under independence, excess correlation, and an
+        overall correlation estimate (rho) suitable for use with
+        hallucination_upper_bound_correlated().
+    """
+    n_views = len(view_verdicts)
+    if n_views < 2:
+        return IndependenceTestResult(
+            pairwise_agreements=[],
+            expected_agreement_if_independent=0.0,
+            average_excess_correlation=0.0,
+            estimated_rho=0.0,
+            independence_plausible=True,
+        )
+
+    n_claims = len(view_verdicts[0])
+    if n_claims == 0:
+        raise ValueError("view_verdicts must contain at least one claim")
+    for i, vv in enumerate(view_verdicts):
+        if len(vv) != n_claims:
+            raise ValueError(
+                f"All views must have same length; view {i} has "
+                f"{len(vv)} vs expected {n_claims}"
+            )
+
+    # Compute marginal acceptance rates per view
+    marginals = [sum(v) / n_claims for v in view_verdicts]
+
+    # Expected agreement under independence: P(both accept) + P(both reject)
+    # = p_i * p_j + (1 - p_i) * (1 - p_j)
+    pairwise: list[tuple[int, int, float]] = []
+    expected_agreements: list[float] = []
+    actual_agreements: list[float] = []
+
+    for i in range(n_views):
+        for j in range(i + 1, n_views):
+            agree_count = sum(
+                1 for k in range(n_claims)
+                if view_verdicts[i][k] == view_verdicts[j][k]
+            )
+            actual_agree = agree_count / n_claims
+            pairwise.append((i, j, actual_agree))
+            actual_agreements.append(actual_agree)
+
+            p_i, p_j = marginals[i], marginals[j]
+            expected = p_i * p_j + (1.0 - p_i) * (1.0 - p_j)
+            expected_agreements.append(expected)
+
+    avg_expected = sum(expected_agreements) / len(expected_agreements)
+    avg_actual = sum(actual_agreements) / len(actual_agreements)
+    avg_excess = avg_actual - avg_expected
+
+    # Estimate rho: correlation coefficient from excess agreement
+    # rho = excess_agreement / (1 - expected_agreement)
+    # This normalizes so that rho=0 means independent, rho=1 means identical
+    if avg_expected < 1.0:
+        estimated_rho = max(0.0, min(1.0, avg_excess / (1.0 - avg_expected)))
+    else:
+        estimated_rho = 1.0 if avg_excess > 0 else 0.0
+
+    # Independence is plausible if excess correlation < 10%
+    independence_plausible = avg_excess < 0.10
+
+    return IndependenceTestResult(
+        pairwise_agreements=pairwise,
+        expected_agreement_if_independent=avg_expected,
+        average_excess_correlation=avg_excess,
+        estimated_rho=estimated_rho,
+        independence_plausible=independence_plausible,
     )

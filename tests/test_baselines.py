@@ -73,7 +73,7 @@ class TestSelfCritiqueBaseline:
 
 class TestBaselineConfigs:
     def test_four_configs(self):
-        assert len(BASELINE_CONFIGS) == 4
+        assert len(BASELINE_CONFIGS) == 9
 
     def test_all_types_covered(self):
         types = {c.baseline_type for c in BASELINE_CONFIGS}
@@ -82,4 +82,9 @@ class TestBaselineConfigs:
             BaselineType.STANDARD_RAG,
             BaselineType.RAG_VERIFIER,
             BaselineType.SELF_CRITIQUE,
+            BaselineType.SELF_CHECK_GPT,
+            BaselineType.CHAIN_OF_VERIFICATION,
+            BaselineType.RANDOM_FILTER,
+            BaselineType.FIRST_K_SENTENCES,
+            BaselineType.SINGLE_NLI_THRESHOLD,
         }

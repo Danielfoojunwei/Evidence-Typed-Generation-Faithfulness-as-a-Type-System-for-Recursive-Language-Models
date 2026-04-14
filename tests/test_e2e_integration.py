@@ -930,11 +930,11 @@ class TestEndToEndETGValidation:
     # -----------------------------------------------------------------------
 
     def test_dataset_coverage(self):
-        """Verify all 5 datasets are configured correctly."""
-        assert len(ALL_DATASET_CONFIGS) == 5
-        assert total_eval_instances() == 3817
+        """Verify all datasets are configured correctly."""
+        assert len(ALL_DATASET_CONFIGS) == 7
+        assert total_eval_instances() == 9317
 
-        print(f"\n  [Datasets] Total: {total_eval_instances()} instances across 5 benchmarks")
+        print(f"\n  [Datasets] Total: {total_eval_instances()} instances across 7 benchmarks")
         for cfg in ALL_DATASET_CONFIGS:
             print(f"    {cfg.name.value:<25} N={cfg.eval_subset_size:>5}  "
                   f"Task: {cfg.task_type.value}")
